@@ -12,7 +12,9 @@ const io = new Server(server, {
     origin: "http://localhost:3000",
     methods: ["GET", "POST"],
   },
-});
+});//hello world
+
+const sample = 1;
 const bcrypt = require("bcrypt");
 const salt = 10;
 app.use(cors());
