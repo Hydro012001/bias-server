@@ -6,7 +6,7 @@ const axios = require("axios");
 require("dotenv").config();
 const bcrypt = require("bcrypt");
 const currentDate = new Date();
-//const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 9));
+//const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 13));
 // const today = new Date(new Date().setMonth(new Date().getMonth() + 12));
 // const currentDate = new Date(
 //   new Date(today.getFullYear(), today.getMonth(), 60)
@@ -67,6 +67,23 @@ app.post("/admin/alllist", (req, res) => {
                         BusinessRes,
                         invesRes,
                         transacRes,
+                        formattedDate: `${currentDate.getFullYear()}-${(
+                          currentDate.getMonth() + 1
+                        )
+                          .toString()
+                          .padStart(2, "0")}-${currentDate
+                          .getDate()
+                          .toString()
+                          .padStart(2, "0")} ${currentDate
+                          .getHours()
+                          .toString()
+                          .padStart(2, "0")}:${currentDate
+                          .getMinutes()
+                          .toString()
+                          .padStart(2, "0")}:${currentDate
+                          .getSeconds()
+                          .toString()
+                          .padStart(2, "0")}`,
                       });
                     }
                   });
@@ -93,7 +110,7 @@ app.post("/admin/login", (req, res) => {
         if (result.length > 0) {
           res.send({ status: true, message: "Login successfully", result });
         } else {
-          res.send({ status: true, message: "Account not found" });
+          res.send({ status: false, message: "Account not found" });
         }
       }
     }
@@ -236,6 +253,30 @@ app.post("/businessfunds", (req, res) => {
       return res.send({ status: true, result, currentDate });
     }
   });
+});
+
+app.post("/userstatus", (req, res) => {
+  const { user_id } = req.body;
+  const status = "verified";
+  db.query(
+    "select user_status from usertbl where user_id = ? and user_status = ?",
+    [user_id, status],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        if (result.length > 0) {
+          return res.send({ status: true });
+        } else {
+          return res.send({
+            status: false,
+            message:
+              "Sorry, you need to verify your account before pitching a business. Please verify you account first",
+          });
+        }
+      }
+    }
+  );
 });
 
 app.post("/paypal-api", async (req, res) => {
@@ -551,7 +592,7 @@ app.post("/admin/approveBusiness", (req, res) => {
   const businessId = req.body.businessId;
 
   const mysql =
-    "select business.*,  entrprenuer.user_fname as entrepFname, entrprenuer.user_lname as entrepLname, entrprenuer.user_mname as entrepMname , entrprenuer.user_profile as entrepProfile,  businessapproved.*, investor.user_id as investor_id ,investor.user_profile as investor_profile, investor.user_fname as investor_fname, investor.user_lname as investor_lname, investor.user_email as investor_email, investment.* from  business left join usertbl as entrprenuer on business.buss_user_id = entrprenuer.user_id left join businessapproved on business.buss_id = businessapproved.buss_approved_buss_id left join investment on businessapproved.buss_approved_buss_id = investment.invst_buss_approved_buss_id left join usertbl as investor on investment.invst_user_id = investor.user_id where buss_id = ?";
+    "select business.*, entrprenuer.user_contact_num as entrepContact, entrprenuer.user_email as entrepEmail ,entrprenuer.user_age as entrepAge, entrprenuer.user_bdate as entrepBdate ,entrprenuer.user_province as entrepProvince, entrprenuer.user_city as entrepCity, entrprenuer.user_barangay as entrepBarangay   ,entrprenuer.user_fname as entrepFname, entrprenuer.user_lname as entrepLname, entrprenuer.user_mname as entrepMname , entrprenuer.user_profile as entrepProfile,  businessapproved.*, investor.user_id as investor_id ,investor.user_profile as investor_profile, investor.user_fname as investor_fname, investor.user_lname as investor_lname, investor.user_email as investor_email, investment.* from  business left join usertbl as entrprenuer on business.buss_user_id = entrprenuer.user_id left join businessapproved on business.buss_id = businessapproved.buss_approved_buss_id left join investment on businessapproved.buss_approved_buss_id = investment.invst_buss_approved_buss_id left join usertbl as investor on investment.invst_user_id = investor.user_id where buss_id = ?";
 
   db.query(mysql, businessId, (error, result) => {
     if (error) {
@@ -576,16 +617,23 @@ app.post("/admin/approveBusiness", (req, res) => {
             buss_address: row.buss_address,
             buss_photo: row.buss_photo,
             buss_station: row.buss_station,
+            user_age: row.entrepAge,
+            user_bdate: row.entrepBdate,
             buss_station_name: row.buss_station_name,
             buss_experience: row.buss_experience,
             buss_prev_name: row.buss_prev_name,
             buss_summary: row.buss_summary,
+            user_contact_num: row.entrepContact,
+            user_email: row.entrepEmail,
+            user_barangay: row.entrepBarangay,
             buss_target_audience: row.buss_target_audience,
             buss_useof_funds: row.buss_useof_funds,
             buss_capital: row.buss_capital,
             buss_approved_updated_month: row.buss_approved_updated_month,
             buss_approved_percent: row.buss_approved_percent,
             user_fname: row.entrepFname,
+            user_city: row.entrepCity,
+            user_province: row.entrepProvince,
             user_lname: row.entrepLname,
             user_mname: row.entrepMname,
             user_profile: row.entrepProfile,
@@ -699,6 +747,18 @@ app.post("/admin/userapprove", (req, res) => {
                 message: error.message,
               });
             } else {
+              //          const insertIntoNotification =
+              // "insert into notification ( notif_type, notif_created_at, user_id_reciever, notif_status) values(?,?,?,?)";
+              //           const notif_type = "user";
+              //           const status = "unread"
+              // db.query(insertIntoNotification, [notif_type, formattedDate,user_id, status], (error,result) => {
+              //   if(error){
+
+              //   }
+              //   else{
+              //     db.query("insert into ()")
+              //   }
+              // })
               return res.send({
                 status: true,
                 message: "User Sucessfully Verified",
@@ -982,31 +1042,48 @@ app.post("/createaccount", (req, res) => {
   const age = req.body.age;
 
   db.query(
-    "insert into usertbl (user_type, user_fname, user_lname, user_mname, user_bdate, user_gender, user_age ,user_contact_num, user_email, user_password, user_province, user_city, user_barangay, user_created_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-    [
-      usertype,
-      firstname,
-      lastname,
-      middlename,
-      Birthday,
-      gender,
-      age,
-      phonenum,
-      email,
-      hash,
-      province,
-      city,
-      barangay,
-      formattedDate,
-    ],
+    "select user_email from usertbl where user_email = ?",
+    email,
     (error, result) => {
       if (error) {
-        res.send({
-          status: false,
-          message: error.message,
-        });
+        return res.send({ status: false, message: error.message });
       } else {
-        res.send({ status: true, message: "Account created Succefully" });
+        if (result.length > 0) {
+          return res.send({ status: false, message: "Email in already use" });
+        } else {
+          db.query(
+            "insert into usertbl (user_type, user_fname, user_lname, user_mname, user_bdate, user_gender, user_age ,user_contact_num, user_email, user_password, user_province, user_city, user_barangay, user_created_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+              usertype,
+              firstname,
+              lastname,
+              middlename,
+              Birthday,
+              gender,
+              age,
+              phonenum,
+              email,
+              hash,
+              province,
+              city,
+              barangay,
+              formattedDate,
+            ],
+            (error, result) => {
+              if (error) {
+                res.send({
+                  status: false,
+                  message: error.message,
+                });
+              } else {
+                res.send({
+                  status: true,
+                  message: "Account created Succefully",
+                });
+              }
+            }
+          );
+        }
       }
     }
   );
@@ -1076,14 +1153,14 @@ app.post("/startBusiness", (req, res) => {
 
   db.query(
     updateBusinessInstallments,
-    [installments, statusBusiness, investStart, buss_id],
+    [installments, statusBusiness, buss_id],
     (error, result) => {
       if (error) {
         return res.send({ status: false, message: error.message });
       } else {
         db.query(
           updateInvestmentStartDate,
-          [todayDate, enddate, buss_id],
+          [todayDate, enddate, investStart, buss_id],
           (error, result) => {
             if (error) {
               return res.send({ status: false, message: error.message });
@@ -1868,7 +1945,6 @@ app.post("/payretunrloan", (req, res) => {
                     return res.send({ status: false, message: error.message });
                   } else {
                     if (returnLoanLenght.length === installmentLength) {
-                      console.log();
                       console.log(
                         "Return Loan Length equal " + returnLoanLenght.length
                       );
@@ -2453,6 +2529,31 @@ app.post("/api/getAccumulatedAmt", (req, res) => {
   );
 });
 
+app.post("/investments-detials", (req, res) => {
+  const { invstmentId, user_id } = req.body;
+  db.query(
+    "select investment.*, business.*, businessapproved.*, usertbl.user_fname,usertbl.user_id ,usertbl.user_profile,usertbl.user_lname, usertbl.user_mname  from investment inner join businessapproved on businessapproved.buss_approved_buss_id = investment.invst_buss_approved_buss_id inner join business on businessapproved.buss_approved_buss_id = business.buss_id inner join usertbl on business.buss_user_id = usertbl.user_id where invst_id = ? and invst_user_id = ?",
+    [invstmentId, user_id],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        db.query(
+          "select * from investment_update where invst_update_invst_id = ?",
+          invstmentId,
+          (error, investUpdates) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              return res.send({ status: true, result, investUpdates });
+            }
+          }
+        );
+      }
+    }
+  );
+});
+
 //Tp view the investment
 //This for investor
 app.post("/investment", (req, res) => {
@@ -3009,13 +3110,32 @@ app.post("/user/myprofile", (req, res) => {
   );
 });
 
+app.post("/updateForgotPass", (req, res) => {
+  const { newPass, emailForFOrgotPass } = req.body;
+  const hash = bcrypt.hashSync(newPass, salt);
+  db.query(
+    "update usertbl set user_password = ? where user_email = ?",
+    [hash, emailForFOrgotPass],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({
+          status: true,
+          message: "You have successfully updated your password",
+        });
+      }
+    }
+  );
+});
+
 app.post("/user/updateprofile", (req, res) => {
   console.log("I have here in the server");
   const {
     firstname,
     middlename,
     lastname,
-    password,
+
     Birthday,
     userage,
     province,
@@ -3025,9 +3145,9 @@ app.post("/user/updateprofile", (req, res) => {
     gender,
     url,
   } = req.body;
-  const hash = bcrypt.hashSync(password, salt);
+
   db.query(
-    "update usertbl set user_fname =? , user_lname= ?, user_mname=?, user_bdate=?, user_gender=?,user_age=?,user_password=?, user_province=?, user_city=?, user_barangay =? ,user_profile=?, user_updated_at = ?  where user_id = ?",
+    "update usertbl set user_fname =? , user_lname= ?, user_mname=?, user_bdate=?, user_gender=?,user_age=?,user_province=?, user_city=?, user_barangay =? ,user_profile=?, user_updated_at = ?  where user_id = ?",
     [
       firstname,
       lastname,
@@ -3035,7 +3155,7 @@ app.post("/user/updateprofile", (req, res) => {
       Birthday,
       gender,
       userage,
-      hash,
+
       province,
       city,
       barangay,
