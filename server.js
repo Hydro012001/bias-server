@@ -3086,7 +3086,7 @@ app.post("/admin/chatsmsgs", (req, res) => {
   const { chatroom_id } = req.body;
 
   db.query(
-    "select * from chatmsg where chtmsg_chtroom_id = ?",
+    "select * from chatmsg where chtmsg_chtroom_id = ? order by chtmsg_id desc",
     chatroom_id,
     (error, result) => {
       if (error) {
