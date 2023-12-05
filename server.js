@@ -1131,7 +1131,7 @@ app.post("/login", (req, res) => {
   const pass = req.body.password;
 
   db.query(
-    "select * from usertbl where user_email = ?",
+    "select * from usertbl where user_email = ? and user_pass",
     email,
     (error, result) => {
       if (error) {
@@ -1146,11 +1146,16 @@ app.post("/login", (req, res) => {
         //     return res.send({ success: false, message: "Wrong password" });
         //   }
         // });
-        if (response) {
+        if (result[0].user_password === pass) {
           return res.send({ success: true, result });
         } else {
           return res.send({ success: false, message: "Wrong password" });
         }
+        // if (response) {
+
+        // } else {
+
+        // }
       } else {
         return res.send({ success: false, message: "Wrong username" });
       }
