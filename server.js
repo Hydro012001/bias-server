@@ -5,13 +5,15 @@ const app = express();
 const axios = require("axios");
 require("dotenv").config();
 const bcrypt = require("bcrypt");
-const currentDate = new Date();
-//const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 13));
-// const today = new Date(new Date().setMonth(new Date().getMonth() + 12));
+const { emit } = require("nodemon");
+//const currentDate = new Date();
+const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 62));
+// const today = new Date();
+// //const today = new Date(new Date().setMonth(new Date().getMonth() + 12));
 // const currentDate = new Date(
-//   new Date(today.getFullYear(), today.getMonth(), 60)
+//   new Date(today.getFullYear(), today.getMonth(), 0)
 // );
-
+console.log(currentDate.toDateString());
 const formattedDate = currentDate.toISOString().slice(0, 19).replace("T", " ");
 const salt = 10;
 app.use(cors());
@@ -29,7 +31,8 @@ const db = mysql.createConnection({
 });
 
 app.post("/admin/alllist", (req, res) => {
-  const mysqlforListUser = "select *  from usertbl";
+  const type = "admin";
+  const mysqlforListUser = "select *  from usertbl where user_type != ?";
   const mysqlForListOfBusiness = "select * from business";
   const mysqlForListofInvestment =
     "select * from investment inner join usertbl on investment.invst_user_id = usertbl.user_id  order by invst_id desc";
@@ -37,7 +40,7 @@ app.post("/admin/alllist", (req, res) => {
   const listofAllData =
     "select entrep.*, investors.user_fname as invstFname, investors.user_lname as invstLname, investors.user_profile as invstProfile,  business.*, investment.*, businessapproved.* from usertbl as entrep inner join business on entrep.user_id = business.buss_user_id inner join businessapproved on business.buss_id = businessapproved.buss_approved_buss_id inner join investment on businessapproved.buss_approved_buss_id = investment.invst_buss_approved_buss_id inner join usertbl as investors on investment.invst_user_id = investors.user_id";
 
-  db.query(mysqlforListUser, (error, userRes) => {
+  db.query(mysqlforListUser, type, (error, userRes) => {
     if (error) {
       return res.send({ status: false, message: error.message });
     } else {
@@ -60,31 +63,45 @@ app.post("/admin/alllist", (req, res) => {
                         message: error.message,
                       });
                     } else {
-                      return res.send({
-                        status: true,
-                        result,
-                        userRes,
-                        BusinessRes,
-                        invesRes,
-                        transacRes,
-                        formattedDate: `${currentDate.getFullYear()}-${(
-                          currentDate.getMonth() + 1
-                        )
-                          .toString()
-                          .padStart(2, "0")}-${currentDate
-                          .getDate()
-                          .toString()
-                          .padStart(2, "0")} ${currentDate
-                          .getHours()
-                          .toString()
-                          .padStart(2, "0")}:${currentDate
-                          .getMinutes()
-                          .toString()
-                          .padStart(2, "0")}:${currentDate
-                          .getSeconds()
-                          .toString()
-                          .padStart(2, "0")}`,
-                      });
+                      db.query(
+                        "select sum(earnings_amt) as earningsSum from earnings",
+                        (error, resultEarningSum) => {
+                          if (error) {
+                            return res.send({
+                              status: false,
+                              message: error.message,
+                            });
+                          } else {
+                            const earningSum = resultEarningSum[0].earningsSum;
+                            return res.send({
+                              status: true,
+                              result,
+                              userRes,
+                              BusinessRes,
+                              invesRes,
+                              transacRes,
+                              earningSum,
+                              formattedDate: `${currentDate.getFullYear()}-${(
+                                currentDate.getMonth() + 1
+                              )
+                                .toString()
+                                .padStart(2, "0")}-${currentDate
+                                .getDate()
+                                .toString()
+                                .padStart(2, "0")} ${currentDate
+                                .getHours()
+                                .toString()
+                                .padStart(2, "0")}:${currentDate
+                                .getMinutes()
+                                .toString()
+                                .padStart(2, "0")}:${currentDate
+                                .getSeconds()
+                                .toString()
+                                .padStart(2, "0")}`,
+                            });
+                          }
+                        }
+                      );
                     }
                   });
                 }
@@ -352,7 +369,6 @@ app.post("/paypal-api", async (req, res) => {
                     [notif_type, formattedDate, user_id, notif_status],
                     (error, notifResult) => {
                       if (error) {
-                        console.log(error.message);
                         return res.send({
                           status: false,
                           message: "Error notif",
@@ -360,13 +376,11 @@ app.post("/paypal-api", async (req, res) => {
                       } else {
                         const notif_id = notifResult.insertId;
 
-                        console.log(notif_id);
                         db.query(
                           notif_business_update,
                           [notif_id, notif_content, buss_id],
                           (error, result) => {
                             if (error) {
-                              console.log(error.message);
                               return res.send({
                                 status: false,
                                 message: "Error notif update",
@@ -430,7 +444,6 @@ app.post("/updatesUseFunds", (req, res) => {
   const { id } = req.body;
   const status = "recieve";
 
-  console.log(id, status);
   db.query(
     "update businessfunds set bussFunds_amount_recieve_status = ? where bussFunds_id = ?",
     [status, id],
@@ -467,7 +480,33 @@ app.get("/admin/listoftransactions", (req, res) => {
       if (error) {
         return res.send({ status: false, message: error.message });
       } else {
-        return res.send({ status: true, result });
+        const invstStatus = "complete";
+        db.query(
+          "select sum(invst_returned_amt) as totalInvestReturn from investment where invst_status = ?",
+          invstStatus,
+          (error, investReuslt) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              db.query(
+                "select sum(earnings_amt) as earningsSum from earnings",
+                (error, resultEarningSum) => {
+                  if (error) {
+                    return res.send({ status: false, message: error.message });
+                  } else {
+                    const earningSum = resultEarningSum[0].earningsSum;
+                    return res.send({
+                      status: true,
+                      result,
+                      investReuslt,
+                      earningSum,
+                    });
+                  }
+                }
+              );
+            }
+          }
+        );
       }
     }
   );
@@ -656,6 +695,7 @@ app.post("/admin/approveBusiness", (req, res) => {
           investor_fname: row.investor_fname,
           investor_lname: row.investor_lname,
           invest_amount: row.invst_amt,
+          invst_returned_amt: row.invst_returned_amt,
           investor_email: row.investor_email,
           invest_date: row.invst_created_at,
         });
@@ -800,7 +840,6 @@ app.post("/admin/approveuserbusiness", (req, res) => {
           [buss_id, year, percent, formattedDate],
           (error, result) => {
             if (error) {
-              console.log(error);
               return res.send({
                 status: false,
                 message: error.message,
@@ -811,7 +850,6 @@ app.post("/admin/approveuserbusiness", (req, res) => {
                 [notif_type, formattedDate, user_id, notif_status],
                 (error, notifResult) => {
                   if (error) {
-                    console.log(error.message);
                     return res.send({
                       status: false,
                       message: "Error notif",
@@ -819,13 +857,11 @@ app.post("/admin/approveuserbusiness", (req, res) => {
                   } else {
                     const notif_id = notifResult.insertId;
 
-                    console.log(notif_id);
                     db.query(
                       notif_business_update,
                       [notif_id, notif_content, buss_id],
                       (error, result) => {
                         if (error) {
-                          console.log(error.message);
                           return res.send({
                             status: false,
                             message: "Error notif update",
@@ -1127,7 +1163,6 @@ app.post("/checkUserStatus", (req, res) => {
       if (error) {
         return res.send({ success: false, message: "Error on user " });
       } else {
-        console.log(result.length);
         if (result.length <= 0) {
           return res.send({
             success: false,
@@ -1239,7 +1274,6 @@ app.post("/pitchbussines", (req, res) => {
     ],
     (error, result) => {
       if (error) {
-        console.log(error.message);
         return res.send({ status: false, message: error.message });
       } else {
         return res.send({ status: true });
@@ -1334,6 +1368,7 @@ app.post("/business", (req, res) => {
               buss_interest: row.buss_interest,
               buss_loan_return: row.buss_loan_return,
               buss_status: row.buss_status,
+              buss_created_at: row.buss_created_at,
               businessFunds: [],
             };
             list.push(business);
@@ -1365,24 +1400,37 @@ app.post("/list", (req, res) => {
   const user_id = req.body.user_id;
 
   //To check if business is new or not
+  // const isItemNew = (created_at) => {
+  //   const currentDate = new Date();
+  //   const oneMonthAgo = new Date();
+  //   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+  //   const createdDate = new Date(created_at);
+
+  //   return createdDate >= oneMonthAgo && createdDate <= currentDate;
+  // };
+
   const isItemNew = (created_at) => {
-    const currentDate = new Date();
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const todayDate = new Date(currentDate);
+    const oneDayAgo = new Date(currentDate);
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1); // Subtract 1 day from the current date
 
     const createdDate = new Date(created_at);
 
-    return createdDate >= oneMonthAgo && createdDate <= currentDate;
+    return createdDate >= oneDayAgo && createdDate <= todayDate;
   };
 
   //To calulcate total invest
   const calculateTotalInvest = (investment) => {
-    const investDetails = investment.map((item) => item.invest_amount);
+    const investDetails = investment.map((item) => item);
 
     let totalSum = 0;
 
     for (let i = 0; i < investDetails.length; i++) {
-      totalSum += parseFloat(investDetails[i]);
+      if (investDetails[i].invst_status !== "cancel") {
+        totalSum += parseFloat(investDetails[i].invst_amount);
+      } else {
+      }
     }
     if (totalSum) {
       return totalSum;
@@ -1409,16 +1457,17 @@ app.post("/list", (req, res) => {
     return uniqueItems;
   };
 
+  const invstStatus = "cancel";
+
   db.query(
     "select * from user_business_likes where userbusslikes_user_id = ? ",
     user_id,
     (errors, resultsLike) => {
       if (errors) {
-        console.log(errors);
         return res.send({ status: false, message: errors.message });
       } else {
         db.query(
-          "select business.*, usertbl.* ,businessapproved.*, investor.user_id as investor_id ,investor.user_profile as investor_profile, investor.user_fname as investor_fname, investor.user_lname as investor_lname ,investment.* from business left join usertbl on usertbl.user_id =  business.buss_user_id left join businessapproved on business.buss_id = businessapproved.buss_approved_buss_id left join investment on businessapproved.buss_approved_buss_id = investment.invst_buss_approved_buss_id left join usertbl as investor on investment.invst_user_id = investor.user_id  where buss_status = ? and usertbl.user_type = ? order by buss_id desc",
+          "select business.*, usertbl.* ,businessapproved.*, investor.user_id as investor_id ,investor.user_profile as investor_profile, investor.user_fname as investor_fname, investor.user_lname as investor_lname ,investment.* from business left join usertbl on usertbl.user_id =  business.buss_user_id left join businessapproved on business.buss_id = businessapproved.buss_approved_buss_id left join investment on businessapproved.buss_approved_buss_id = investment.invst_buss_approved_buss_id left join usertbl as investor on investment.invst_user_id = investor.user_id  where buss_status = ? and usertbl.user_type = ?  order by buss_id desc",
           [status, userType],
           (error, result) => {
             if (error) {
@@ -1469,6 +1518,7 @@ app.post("/list", (req, res) => {
                   investor_fname: row.investor_fname,
                   investor_lname: row.investor_lname,
                   invest_amount: row.invst_amt,
+                  invst_status: row.invst_status,
                 });
               });
 
@@ -1610,6 +1660,7 @@ app.post("/api/viewentrepbusiness", (req, res) => {
           investor_fname: row.investor_fname,
           investor_lname: row.investor_lname,
           invest_amount: row.invst_amt,
+          invst_status: row.invst_status,
         });
       });
       return res.send({ status: true, result: businessWithInvestment });
@@ -1658,7 +1709,7 @@ app.post("/updateInvestment", (req, res) => {
 
   const investUpdateTable =
     "insert into investment_update (invst_update_type, invst_updated_crearted_at, invst_update_invst_id) value(?,?,?) ";
-  console.log(invst_id);
+
   db.query(
     transactionsSql,
     [type, amount, email, date, paypalLog, user_id],
@@ -1740,7 +1791,6 @@ app.post("/invest", (req, res) => {
       [type, amount, email, date, paypalLog, user_id],
       (error, transacResult) => {
         if (error) {
-          console.log(error.message);
           return res.send({ status: false, message: error.message });
         } else {
           const trans_id = transacResult.insertId;
@@ -1761,7 +1811,6 @@ app.post("/invest", (req, res) => {
             ],
             (error, investResult) => {
               if (error) {
-                console.log(error.message);
                 return res.send({ status: false, message: error.message });
               } else {
                 const invst_id = investResult.insertId;
@@ -1782,7 +1831,6 @@ app.post("/invest", (req, res) => {
                         [typeNotif, date, buss_user_id, notif_status],
                         (error, notifResult) => {
                           if (error) {
-                            console.log(error.message);
                             return res.send({
                               status: false,
                               message: error.message,
@@ -1795,7 +1843,6 @@ app.post("/invest", (req, res) => {
                               [notif_id, content, buss_id, invst_id],
                               (error, result) => {
                                 if (error) {
-                                  console.log(error.message);
                                   return res.send({
                                     status: false,
                                     message: error.message,
@@ -1945,9 +1992,6 @@ app.post("/payretunrloan", (req, res) => {
                     return res.send({ status: false, message: error.message });
                   } else {
                     if (returnLoanLenght.length === installmentLength) {
-                      console.log(
-                        "Return Loan Length equal " + returnLoanLenght.length
-                      );
                       const status = "complete";
                       db.query(
                         "update business set buss_status = ? where buss_id = ?",
@@ -1959,19 +2003,69 @@ app.post("/payretunrloan", (req, res) => {
                               message: error.message,
                             });
                           } else {
-                            return res.send({
-                              status: true,
-                              message:
-                                "Successfully Paid and the business loan is completed.",
-                            });
+                            db.query(
+                              "select sum(invst_returned_amt) as totalInvesmentReturn from investment where invst_buss_approved_buss_id = ?",
+                              buss_id,
+                              (error, resultTotalInvestmentAmount) => {
+                                if (error) {
+                                  return res.send({
+                                    status: false,
+                                    message: error.message,
+                                  });
+                                } else {
+                                  db.query(
+                                    "select sum(returnLoan_amt) as toatalReturn from returnloan where returnLoan_buss_id = ?",
+                                    buss_id,
+                                    (error, resultBusinessLoanReturn) => {
+                                      if (error) {
+                                        return res.send({
+                                          status: false,
+                                          message: error.message,
+                                        });
+                                      } else {
+                                        const totaInvestAMount =
+                                          resultTotalInvestmentAmount[0]
+                                            .totalInvesmentReturn;
+                                        const totalLoanReturn =
+                                          resultBusinessLoanReturn[0]
+                                            .toatalReturn;
+
+                                        const totalEarnings =
+                                          parseFloat(totalLoanReturn) -
+                                          parseFloat(totaInvestAMount);
+
+                                        db.query(
+                                          "insert into earnings (earnings_amt, earnings_created_at,earnings_buss_id ) values(?,?,?)",
+                                          [
+                                            totalEarnings,
+                                            formattedDate,
+                                            buss_id,
+                                          ],
+                                          (error, result) => {
+                                            if (error) {
+                                              return res.send({
+                                                status: false,
+                                                message: error.message,
+                                              });
+                                            } else {
+                                              return res.send({
+                                                status: true,
+                                                message:
+                                                  "Successfully Paid and the business loan is completed.",
+                                              });
+                                            }
+                                          }
+                                        );
+                                      }
+                                    }
+                                  );
+                                }
+                              }
+                            );
                           }
                         }
                       );
                     } else {
-                      console.log(
-                        "Return Loan Length Not equal " +
-                          returnLoanLenght.length
-                      );
                       return res.send({
                         status: true,
                         message: "Successfully Paid",
@@ -2037,7 +2131,6 @@ app.post("/viewBusinessInstallments", (req, res) => {
           buss_id,
           (error, result) => {
             if (error) {
-              console.log(error);
               return res.send({ status: false, message: error.message });
             } else {
               db.query(
@@ -2045,7 +2138,6 @@ app.post("/viewBusinessInstallments", (req, res) => {
                 buss_id,
                 (error, retunrLoanResult) => {
                   if (error) {
-                    console.log(error);
                     return res.send({ status: false, message: error.message });
                   } else {
                     const returnData = retunrLoanResult;
@@ -2126,7 +2218,7 @@ app.post("/viewBusinessInstallments", (req, res) => {
                       },
                       0
                     );
-                    console.log(new Date(currentDate).toDateString());
+
                     const todayPayment = installmentsDatas.find((item) => {
                       if (
                         currentDate >= new Date(item.mindate) &&
@@ -2208,23 +2300,35 @@ app.post("/getInvestHasInvestments", (req, res) => {
       if (error) {
         return res.send({ status: false, message: error.message });
       } else {
-        if (result.length > 0) {
-          return res.send({ status: true, hasInvesment: true });
-        } else {
-          db.query(
-            "select user_status from usertbl where user_id = ? ",
-            user_id,
-            (error, userStatus) => {
-              if (error) {
-                return res.send({ status: false, message: error.message });
-              } else {
-                const userStat = userStatus[0].user_status;
+        db.query(
+          "select user_status from usertbl where user_id = ? ",
+          user_id,
+          (error, userStatus) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              const userStat = userStatus[0].user_status;
 
-                if (userStat === "basic") {
+              if (userStat === "basic") {
+                if (result.length > 0) {
+                  return res.send({
+                    status: true,
+                    hasInvesment: true,
+                    userVerifid: false,
+                  });
+                } else {
                   return res.send({
                     status: true,
                     userVerifid: false,
                     hasInvesment: false,
+                  });
+                }
+              } else {
+                if (result.length > 0) {
+                  return res.send({
+                    status: true,
+                    hasInvesment: true,
+                    userVerifid: true,
                   });
                 } else {
                   return res.send({
@@ -2235,8 +2339,8 @@ app.post("/getInvestHasInvestments", (req, res) => {
                 }
               }
             }
-          );
-        }
+          }
+        );
       }
     }
   );
@@ -2571,7 +2675,6 @@ app.post("/investment", (req, res) => {
           [user_id],
           (error, withdrawResutl) => {
             if (error) {
-              console.log(error.message);
               res.send({ status: false, message: error.message });
             } else {
               res.send({ status: true, result, todayDate, withdrawResutl });
@@ -2598,7 +2701,10 @@ app.post("/requestWithdraw", (req, res) => {
       if (error) {
         return res.send({ status: false, message: error.message });
       } else {
-        return res.send({ status: true });
+        return res.send({
+          status: true,
+          message: "Withdrawal request sent successfully!",
+        });
       }
     }
   );
@@ -2613,7 +2719,6 @@ app.post("/api/investortopay", (req, res) => {
     user_id,
     (error, result) => {
       if (error) {
-        console.log(error);
         res.send({ status: false, message: error.message });
       } else {
         res.send({ status: true, result, todayDates: currentDate });
@@ -3025,7 +3130,7 @@ app.post("/api/create-chat-room", (req, res) => {
     } else {
       if (result.length > 0) {
         const chtRoomID = result[0].chtroom_id;
-        console.log(chtRoomID);
+
         db.query(
           insertIntoChtmsg,
           [content, senderId, chtRoomID, formattedDate],
@@ -3130,7 +3235,6 @@ app.post("/updateForgotPass", (req, res) => {
 });
 
 app.post("/user/updateprofile", (req, res) => {
-  console.log("I have here in the server");
   const {
     firstname,
     middlename,
@@ -3165,7 +3269,6 @@ app.post("/user/updateprofile", (req, res) => {
     ],
     (error, result) => {
       if (error) {
-        console.log(error.message);
         return res.send({ status: false, message: error.message });
       } else {
         return res.send({
@@ -3215,14 +3318,14 @@ app.post("/getNotif", (req, res) => {
     //   }
     // );
     db.query(
-      "select notification.*, usertbl.user_id as investorID, notif_content,usertbl.user_profile as investorProfile, business.buss_id as businessID from notification inner join notif_business_invest on notification.notif_id = notif_business_invest.notif_business_invest_id inner join business on notif_business_invest.notif_business_table_id = business.buss_id inner join investment on notif_business_invest.notif_business_investment_id =  investment.invst_id inner join usertbl on investment.invst_user_id = usertbl.user_id where  notification.notif_type = 'buss_invest'  and notification.user_id_reciever = ? group by notif_id",
+      "select notification.*, usertbl.user_id as investorID, notif_content,usertbl.user_profile as investorProfile, business.buss_id as businessID from notification inner join notif_business_invest on notification.notif_id = notif_business_invest.notif_business_invest_id inner join business on notif_business_invest.notif_business_table_id = business.buss_id inner join investment on notif_business_invest.notif_business_investment_id =  investment.invst_id inner join usertbl on investment.invst_user_id = usertbl.user_id where  notification.notif_type = 'buss_invest'  and notification.user_id_reciever = ? group by notif_id order by notif_created_at desc",
       [user_id],
       (error, result) => {
         if (error) {
           return res.send({ status: false, message: error.message });
         } else {
           db.query(
-            "select notification.*, business.buss_photo, notif_content from notification inner join notif_business_update on notification.notif_id = notif_business_update.notif_business_update_id inner join business on notif_business_update.notif_business_table_id = business.buss_id where notification.user_id_reciever = ?  and notif_type = ?",
+            "select notification.*, business.buss_photo, notif_content from notification inner join notif_business_update on notification.notif_id = notif_business_update.notif_business_update_id inner join business on notif_business_update.notif_business_table_id = business.buss_id where notification.user_id_reciever = ?  and notif_type = ? order by notif_created_at desc",
             [user_id, type],
             (error, buss_update_result) => {
               const arrayData = result.concat(buss_update_result);
@@ -3235,7 +3338,7 @@ app.post("/getNotif", (req, res) => {
     );
   } else if (notif_type === "investment") {
     db.query(
-      "select notification.*, notif_content, buss_photo from notification inner join notif_investment on notification.notif_id = notif_investment.notif_investment_id inner join investment on notif_investment.notif_investment_table_id = investment.invst_id inner join businessapproved on investment.invst_buss_approved_buss_id = businessapproved.buss_approved_buss_id inner join business on businessapproved.buss_approved_buss_id = business.buss_id where notif_type = 'investment'  and user_id_reciever = ?",
+      "select notification.*, notif_content, buss_photo from notification inner join notif_investment on notification.notif_id = notif_investment.notif_investment_id inner join investment on notif_investment.notif_investment_table_id = investment.invst_id inner join businessapproved on investment.invst_buss_approved_buss_id = businessapproved.buss_approved_buss_id inner join business on businessapproved.buss_approved_buss_id = business.buss_id where notif_type = 'investment'  and user_id_reciever = ? order by notif_created_at desc",
       [user_id],
       (error, result) => {
         if (error) {
@@ -3263,24 +3366,24 @@ app.post("/getNotifCount", (req, res) => {
   );
 });
 
-app.post("/investor/acepptInstallment", (req, res) => {
-  const instll_id = req.body.instll_id;
-  const status = "Approved";
-  db.query(
-    "update installment set instll_invst_approval = ? where instll_id = ?",
-    [status, instll_id],
-    (error, result) => {
-      if (error) {
-        return res.send({
-          status: false,
-          message: "Error ",
-        });
-      } else {
-        return res.send({ status: true, message: "Succesffuly inserted" });
-      }
-    }
-  );
-});
+// app.post("/investor/acepptInstallment", (req, res) => {
+//   const instll_id = req.body.instll_id;
+//   const status = "Approved";
+//   db.query(
+//     "update installment set instll_invst_approval = ? where instll_id = ?",
+//     [status, instll_id],
+//     (error, result) => {
+//       if (error) {
+//         return res.send({
+//           status: false,
+//           message: "Error ",
+//         });
+//       } else {
+//         return res.send({ status: true, message: "Succesffuly inserted" });
+//       }
+//     }
+//   );
+// });
 
 app.post("/client/insertNotif", (req, res) => {
   const id = req.body.id;
@@ -3475,4 +3578,341 @@ app.post("/returnProfit", (req, res) => {
       });
     }
   });
+});
+
+app.post("/user/entrep-details", (req, res) => {
+  const entrepId = req.body.entrepId;
+
+  db.query(
+    "select * from usertbl  where user_id = ? ",
+    entrepId,
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        db.query(
+          "select avg(feedbackrate_count) ratings from feedbackandratings where feedbackrate_entrep_user_id = ?",
+          entrepId,
+          (error, resuts) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              const ratings = resuts[0].ratings;
+              return res.send({ status: true, result, ratings });
+            }
+          }
+        );
+      }
+    }
+  );
+});
+app.get("/admin/earnings", (req, res) => {
+  db.query("select * from earnings", (error, result) => {
+    if (error) {
+      return res.send({ status: false, message: error.message });
+    } else {
+      return res.send({ status: true, result });
+    }
+  });
+});
+
+app.post("/cancelBusiness", (req, res) => {
+  const { bussid } = req.body;
+  const status = "cancel";
+  db.query(
+    "update business set buss_status =? where buss_id = ?",
+    [status, bussid],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({
+          status: true,
+          message: "Your business was successfully canceled",
+        });
+      }
+    }
+  );
+});
+app.post("/showbusinessDetails", (req, res) => {
+  const { buss_id, user_id } = req.body;
+
+  db.query(
+    "select * from business where buss_id = ? and buss_user_id = ?",
+    [buss_id, user_id],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({ status: true, result });
+      }
+    }
+  );
+});
+app.post("/updatedBusiness", (req, res) => {
+  const {
+    bussinessName,
+    bussLogo,
+    SupportingDocUrl,
+    Permits,
+    proofOfResidence,
+    bussinesType,
+    bussinessCapital,
+    bussinessDetails,
+    buss_id,
+    business,
+    address,
+    hasbusinessBuild,
+    bussBuildingPlaceName,
+    bussExperinceValue,
+    prevBusinessName,
+    targetAudience,
+    useFunds,
+    installments,
+    totalReturn,
+    PaypalEmailAddress,
+  } = req.body;
+  const status = "pending";
+  db.query(
+    "update business set buss_name = ?, buss_type =?, buss_type_name=?, buss_address=?, buss_photo=?, buss_station=?, buss_station_name =?, buss_experience=?, buss_prev_name=?, buss_summary=?, buss_target_audience=?, buss_useof_funds=?, buss_user_paypal_email=?, buss_support_doc=?, buss_capital=?, buss_credentials=?, buss_proof_of_residence=?,buss_loan_return=?, buss_installment=?,buss_created_at=?, buss_updated_at=?, buss_status = ? where buss_id = ?",
+    [
+      bussinessName,
+      bussinesType,
+      business,
+      address,
+      bussLogo,
+      hasbusinessBuild,
+      bussBuildingPlaceName,
+      bussExperinceValue,
+      prevBusinessName,
+      bussinessDetails,
+      targetAudience,
+      useFunds,
+      PaypalEmailAddress,
+      SupportingDocUrl,
+      bussinessCapital,
+      Permits,
+      proofOfResidence,
+      totalReturn,
+      installments,
+      formattedDate,
+      formattedDate,
+      status,
+      buss_id,
+    ],
+    (error, resul) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({
+          status: true,
+          message: "Business was succesffuly updated",
+        });
+      }
+    }
+  );
+});
+
+app.post("/admin/cancelbusinessentrep", (req, res) => {
+  const { business, user_id } = req.body;
+  const status = "cancel";
+  const type = "buss_update";
+  const notifStatus = "unread";
+  const content =
+    "We have cancel your business it didn't fully our requirements.";
+  const notif_business_update =
+    "insert into notif_business_update (notif_business_update_id, notif_content, notif_business_table_id) values (?,?,?)";
+  const notificationSql =
+    "insert into notification ( notif_type, notif_created_at, user_id_reciever, notif_status) values(?,?,?,?)";
+  const cancelBusinessStatus =
+    "update business set buss_status = ? where buss_id = ? ";
+  db.query(
+    notificationSql,
+    [type, formattedDate, user_id, notifStatus],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        const notifId = result.insertId;
+        db.query(
+          notif_business_update,
+          [notifId, content, business],
+          (error, results) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              db.query(
+                cancelBusinessStatus,
+                [status, business],
+                (error, results) => {
+                  if (error) {
+                    return res.send({ status: false, message: error.message });
+                  } else {
+                    return res.send({
+                      status: true,
+                      message: "Business was declined.",
+                    });
+                  }
+                }
+              );
+            }
+          }
+        );
+      }
+    }
+  );
+});
+
+app.post("/admin/getCountList", (req, res) => {
+  const countUserHasUserIdentity =
+    "select count(user_id) as countUser from usertbl inner join user_identity on usertbl.user_id = user_identity.user_identity_user_id where user_identity_status = ?";
+  const countBusiness =
+    "selecT count(buss_id) as countBusinessNum from business where buss_status = ?";
+  const countsInvestment =
+    "select count(invst_id) as countInvesments from investment where invst_status = ?";
+  const countWithdraw =
+    "select count (withdraw_id) as countWithdraws from withdraw where withdraw_status = ?";
+  db.query(countUserHasUserIdentity, "pending", (error, countUsers) => {
+    if (error) {
+      return res.send({ status: false, message: error.message });
+    } else {
+      db.query(countBusiness, "pending", (error, countBusinessNum) => {
+        if (error) {
+          return res.send({ status: false, message: error.message });
+        } else {
+          db.query(countsInvestment, "request", (error, countInvesments) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              db.query(countWithdraw, "request", (error, countWithdraws) => {
+                if (error) {
+                  return res.send({ status: false, message: error.message });
+                } else {
+                  return res.send({
+                    status: true,
+                    countUsers,
+                    countBusinessNum,
+                    countInvesments,
+                    countWithdraws,
+                  });
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+  });
+});
+
+app.post("/viewWithdrawalDetails", (req, res) => {
+  const { withdrawId } = req.body;
+
+  db.query(
+    "select * from withdraw inner join investment on withdraw_invst_id = investment.invst_id inner join usertbl on investment.invst_user_id = usertbl.user_id inner join businessapproved on investment.invst_buss_approved_buss_id = businessapproved.buss_approved_buss_id inner join business on buss_approved_buss_id = buss_id where withdraw_id = ?",
+    withdrawId,
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({ status: true, result });
+      }
+    }
+  );
+});
+
+// db.end((error) => {
+//   if (error) {
+//     console.error;
+//     throw error;
+//   } else {
+//     console.log(error);
+//   }
+// });
+
+app.post("/admin/cancelUserInvestment", (req, res) => {
+  const { invstId, userId } = req.body;
+  const content =
+    "We have cancel you investment. We send your invested amount to paypal account you use to invest. Thank you!";
+  const type = "investment";
+  const status = "unread";
+  const invstStatus = "cancel";
+  const notificationSql =
+    "insert into notification ( notif_type, notif_created_at, user_id_reciever, notif_status) values(?,?,?,?)";
+  const notifInvestment =
+    "insert into notif_investment (notif_investment_id,notif_content,notif_investment_table_id ) values(?,?,?)";
+
+  db.query(
+    notificationSql,
+    [type, formattedDate, userId, status],
+    (error, result) => {
+      if (error) {
+      } else {
+        const notifId = result.insertId;
+
+        db.query(
+          notifInvestment,
+          [notifId, content, invstId],
+          (error, results) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              db.query(
+                "update investment set invst_status = ? where invst_id = ?",
+                [invstStatus, invstId],
+                (error, result) => {
+                  if (error) {
+                    return res.send({ status: false, message: error.message });
+                  } else {
+                    db.query(
+                      "select transac_email from transactions where transac_user_id = ?",
+                      userId,
+                      (error, transResult) => {
+                        if (error) {
+                          return res.send({
+                            status: false,
+                            message: error.message,
+                          });
+                        } else {
+                          const email = transResult[0].transac_email;
+                          return res.send({
+                            status: true,
+                            message: "Investment was successfully canceled!",
+                            email,
+                          });
+                        }
+                      }
+                    );
+                  }
+                }
+              );
+            }
+          }
+        );
+      }
+    }
+  );
+});
+
+app.post("/admin/sendrefund", (req, res) => {
+  const { transac_email, payPalDataLog, amount, adminID } = req.body;
+
+  const type = "refund";
+  db.query(
+    "insert into transactions (transac_type,transac_amt,transac_email,transac_created_at,transac_paypal_datalog,transac_user_id) values(?,?,?,?,?,?)",
+    [type, amount, transac_email, formattedDate, payPalDataLog, adminID],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({
+          status: true,
+          message: "Refunds was send succeffuly",
+        });
+      }
+    }
+  );
+});
+app.post("/checkserverstatus", (req, res) => {
+  return res.send({ status: true });
 });
