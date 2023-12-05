@@ -15,7 +15,7 @@ const currentDate = new Date();
 // );
 console.log(currentDate.toDateString());
 const formattedDate = currentDate.toISOString().slice(0, 19).replace("T", " ");
-const salt = 10;
+// const salt = 10;
 app.use(cors());
 app.use(express.json());
 
@@ -1051,11 +1051,6 @@ app.get("/admin/getCountFundLogPaypal", (req, res) => {
       }
     }
   );
-});
-
-app.post("/admin/Insertfundlogingpaypal", (req, res) => {
-  const data = req.body.data;
-  const type = "Withdraw";
 });
 
 //For Creating Account for the user
