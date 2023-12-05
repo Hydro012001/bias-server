@@ -5,9 +5,9 @@ const app = express();
 const axios = require("axios");
 require("dotenv").config();
 const bcrypt = require("bcrypt");
-const { emit } = require("nodemon");
-//const currentDate = new Date();
-const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 62));
+
+const currentDate = new Date();
+//const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 62));
 // const today = new Date();
 // //const today = new Date(new Date().setMonth(new Date().getMonth() + 12));
 // const currentDate = new Date(
