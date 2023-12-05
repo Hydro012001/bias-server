@@ -1131,7 +1131,7 @@ app.post("/login", (req, res) => {
   const pass = req.body.password;
 
   db.query(
-    "select * from usertbl where user_email = ? and user_pass",
+    "select * from usertbl where user_email = ?",
     email,
     (error, result) => {
       if (error) {
