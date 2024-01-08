@@ -4,18 +4,34 @@ const cors = require("cors");
 const app = express();
 const axios = require("axios");
 require("dotenv").config();
-// const bcrypt = require("bcrypt");
+const bcrypt = require("bcrypt");
 
-const currentDate = new Date();
-//const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 62));
+const emailjs = require("@emailjs/nodejs");
+
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const client = require("twilio")(accountSid, authToken);
+//const currentDate = new Date();
+const currentDate = new Date(new Date().setMonth(new Date().getMonth() + 15));
 // const today = new Date();
 // //const today = new Date(new Date().setMonth(new Date().getMonth() + 12));
 // const currentDate = new Date(
 //   new Date(today.getFullYear(), today.getMonth(), 0)
 // );
+
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "http://localhost:3001"],
+    methods: "GET,POST",
+    credentials: true,
+    optionsSuccessStatus: 204,
+  })
+);
+
 console.log(currentDate.toDateString());
+
 const formattedDate = currentDate.toISOString().slice(0, 19).replace("T", " ");
-// const salt = 10;
+const salt = 10;
 app.use(cors());
 app.use(express.json());
 
@@ -28,6 +44,140 @@ const db = mysql.createConnection({
   user: process.env.USER,
   password: process.env.PASSWORD,
   database: process.env.DB_NAME,
+});
+
+app.post("/send-sms", (req, res) => {
+  // const senderPhoneNumber = req.body.phonenum;
+  // console.log(req.body.phonenum);
+
+  const { phonenum, generatedCode } = req.body;
+  // console.log(generatedCode);
+  client.messages
+    .create({
+      body: `Your Bias verification code is: ${generatedCode}`,
+      from: `+19156007018`,
+      to: `${phonenum}`,
+    })
+    .then((msg) => {
+      res.send({ status: true, message: "Successfuly send" });
+    })
+    .catch((error) => {
+      console.log(error.message);
+      res.send({ status: false, message: error.message });
+    });
+});
+
+app.post("/sendEmailUser", (req, res) => {
+  const email = req.body.entrepEmail;
+  const message =
+    "Congrats your business pitch has finally start. Please return the loan you borrowed after 1 months. Thank you for choosing BiaS";
+
+  const templateParams = {
+    to_name: email,
+    message: message,
+    send_to: email,
+  };
+
+  emailjs
+    .send("service_277wgg9", "template_t8lt5z9", templateParams, {
+      publicKey: "SpBOvjyD_Lmx07hlo",
+      privateKey: "SUZLr0cXYR1I4pQTjdrEZ", // optional, highly recommended for security reasons
+    })
+    .then(
+      (response) => {
+        res.send({
+          status: true,
+          message:
+            "Business is successfully started. Email was send to the entrepreneur",
+        });
+        // console.log("SUCCESS!", response.status, response.text);
+      },
+      (err) => {
+        console.log("FAILED...", err);
+      }
+    );
+});
+// const sendEmail = (userMeail) => {
+
+// };
+
+app.post("/admin/addingCategories", (req, res) => {
+  const { category, subCategoryList } = req.body;
+
+  const insertCategory =
+    "insert into category (ctg_name, ctg_created_at) values(?,?)";
+  const insertSubCategory =
+    "insert into subcategory (sub_ctg_name, sub_ctg_create_at, sub_ctg_ctg_id) values(?,?,?)";
+
+  db.query(insertCategory, [category, formattedDate], async (error, result) => {
+    if (error) {
+      return res.send({ status: false, message: error.message });
+    } else {
+      const ctg_id = result.insertId;
+
+      try {
+        const insertPromises = subCategoryList.map((item) => {
+          return new Promise((resolve, reject) => {
+            db.query(
+              insertSubCategory,
+              [item, formattedDate, ctg_id],
+              (error, result) => {
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(result);
+                }
+              }
+            );
+          });
+        });
+
+        await Promise.all(insertPromises);
+
+        return res.send({
+          status: true,
+          message: "Category have successfully added.",
+        });
+      } catch (error) {
+        return res.send({ status: false, message: error.message });
+      }
+    }
+  });
+});
+
+app.post("/retreivecategories", (req, res) => {
+  db.query(
+    "select * from category inner join subcategory on category.ctg_id = subcategory.sub_ctg_ctg_id ",
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        const categoryList = [];
+
+        result.forEach((row) => {
+          let category = categoryList.find(
+            (item) => item.ctg_id === row.ctg_id
+          );
+
+          if (!category) {
+            category = {
+              ctg_id: row.ctg_id,
+              ctg_name: row.ctg_name,
+              subcategory: [],
+            };
+            categoryList.push(category);
+          }
+          category.subcategory.push({
+            sub_ctg_id: row.sub_ctg_id,
+            sub_ctg_name: row.sub_ctg_name,
+            sub_ctg_ctg_id: row.sub_ctg_ctg_id,
+            sub_ctg_status: row.sub_ctg_status,
+          });
+        });
+        return res.send({ status: true, result: categoryList });
+      }
+    }
+  );
 });
 
 app.post("/admin/alllist", (req, res) => {
@@ -451,7 +601,7 @@ app.post("/updatesUseFunds", (req, res) => {
       if (error) {
         return res.send({ status: false, message: error.message });
       } else {
-        return res.send({ status: true, message: "Updated Successfully" });
+        return res.send({ status: true, message: "Marked as receive" });
       }
     }
   );
@@ -998,6 +1148,7 @@ app.get(
                 buss_installment: row.buss_installment,
                 buss_user_paypal_email: row.buss_user_paypal_email,
                 buss_created_at: row.buss_created_at,
+                user_email: row.user_email,
                 investments: [],
               };
               businessWithInvestment.push(business);
@@ -1053,11 +1204,33 @@ app.get("/admin/getCountFundLogPaypal", (req, res) => {
   );
 });
 
+app.post("/check-phone", (req, res) => {
+  const { phonenum } = req.body;
+
+  db.query(
+    "select * from usertbl where user_contact_num = ?",
+    phonenum,
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        if (result.length > 0) {
+          return res.send({
+            status: false,
+            message: "Phonenumber is already used",
+          });
+        } else {
+          return res.send({ status: true });
+        }
+      }
+    }
+  );
+});
 //For Creating Account for the user
 //FOr signup
 app.post("/createaccount", (req, res) => {
   const password = req.body.password;
-
+  const isVerifyPhone = req.body.isVerifyPhone;
   const usertype = req.body.usertype;
   const firstname = req.body.firstname;
   const lastname = req.body.lastname;
@@ -1066,7 +1239,7 @@ app.post("/createaccount", (req, res) => {
   const gender = req.body.gender;
   const phonenum = req.body.phonenum;
   const email = req.body.email;
-  // const hash = bcrypt.hashSync(password, salt);
+  const hash = bcrypt.hashSync(password, salt);
   const province = req.body.province;
   const city = req.body.city;
   const barangay = req.body.barangay;
@@ -1083,7 +1256,7 @@ app.post("/createaccount", (req, res) => {
           return res.send({ status: false, message: "Email in already use" });
         } else {
           db.query(
-            "insert into usertbl (user_type, user_fname, user_lname, user_mname, user_bdate, user_gender, user_age ,user_contact_num, user_email, user_password, user_province, user_city, user_barangay, user_created_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "insert into usertbl (user_type, user_fname, user_lname, user_mname, user_bdate, user_gender, user_age ,user_contact_num, user_email, user_password, user_province, user_city, user_barangay, user_created_at, user_contact_num_isVerified) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [
               usertype,
               firstname,
@@ -1094,11 +1267,12 @@ app.post("/createaccount", (req, res) => {
               age,
               phonenum,
               email,
-              password,
+              hash,
               province,
               city,
               barangay,
               formattedDate,
+              isVerifyPhone,
             ],
             (error, result) => {
               if (error) {
@@ -1135,18 +1309,18 @@ app.post("/login", (req, res) => {
       }
 
       if (result.length > 0) {
-        // bcrypt.compare(pass, result[0].user_password, (err, response) => {
-        //   if (response) {
-        //     return res.send({ success: true, result });
-        //   } else {
-        //     return res.send({ success: false, message: "Wrong password" });
-        //   }
-        // });
-        if (result[0].user_password === pass) {
-          return res.send({ success: true, result });
-        } else {
-          return res.send({ success: false, message: "Wrong password" });
-        }
+        bcrypt.compare(pass, result[0].user_password, (err, response) => {
+          if (response) {
+            return res.send({ success: true, result });
+          } else {
+            return res.send({ success: false, message: "Wrong password" });
+          }
+        });
+        // if (result[0].user_password === pass) {
+        //   return res.send({ success: true, result });
+        // } else {
+        //   return res.send({ success: false, message: "Wrong password" });
+        // }
         // if (response) {
 
         // } else {
@@ -1206,6 +1380,7 @@ app.post("/startBusiness", (req, res) => {
             if (error) {
               return res.send({ status: false, message: error.message });
             } else {
+              // sendEmail();
               return res.send({
                 status: true,
                 message: "Business is successfully started",
@@ -1392,7 +1567,7 @@ app.post("/business", (req, res) => {
           });
         });
 
-        return res.send(list);
+        return res.send({ list, currentDate });
       }
     }
   );
@@ -1428,15 +1603,12 @@ app.post("/list", (req, res) => {
 
   //To calulcate total invest
   const calculateTotalInvest = (investment) => {
-    const investDetails = investment.map((item) => item);
+    const investDetails = investment.map((item) => item.invest_amount);
 
     let totalSum = 0;
 
     for (let i = 0; i < investDetails.length; i++) {
-      if (investDetails[i].invst_status !== "cancel") {
-        totalSum += parseFloat(investDetails[i].invst_amount);
-      } else {
-      }
+      totalSum += parseFloat(investDetails[i]);
     }
     if (totalSum) {
       return totalSum;
@@ -1529,6 +1701,7 @@ app.post("/list", (req, res) => {
               });
 
               //To get the data if business that investments amount are not equal to the capital
+
               const data = businessWithInvestment.filter((item) => {
                 if (
                   item.buss_capital !== calculateTotalInvest(item.investments)
@@ -1536,6 +1709,7 @@ app.post("/list", (req, res) => {
                   return item;
                 }
               });
+
               //Business that has an investors
               const withInvestors = data.filter((item) => {
                 const investments = item.investments;
@@ -1567,15 +1741,20 @@ app.post("/list", (req, res) => {
 
                 //Result of this is for the recommended
                 //It works by joining withInvestors and the filteredBusiessArray and return a data which are not duplicated
-
-                return res.send({
-                  success: true,
-                  result: businessWithInvestment,
-                  filterData: data,
-                  likesofInvestors: resultsLike,
-                  hasLikes: true,
-                  withInvestors,
-                  recomended,
+                db.query("select * from subcategory", (error, subCategory) => {
+                  if (error) {
+                  } else {
+                    return res.send({
+                      success: true,
+                      result: businessWithInvestment,
+                      filterData: data,
+                      likesofInvestors: resultsLike,
+                      hasLikes: true,
+                      withInvestors,
+                      recomended,
+                      subCategory,
+                    });
+                  }
                 });
               } else {
                 return res.send({
@@ -1943,140 +2122,6 @@ app.post("/submitfeedback", (req, res) => {
                       status: true,
                       message: "Your feedback has been succeffuly submit",
                     });
-                  }
-                }
-              );
-            }
-          }
-        );
-      }
-    }
-  );
-});
-
-app.post("/payretunrloan", (req, res) => {
-  const {
-    amount,
-    email,
-    paypalDatalog,
-    user_id,
-    installmentId,
-    buss_id,
-    installmentLength,
-  } = req.body;
-  const type = "returnloan";
-
-  const checkReturLoanLength =
-    "select * from returnloan where returnLoan_buss_id = ? ";
-  const transactionsSql =
-    "insert into transactions (transac_type, transac_amt, transac_email, transac_created_at,transac_paypal_datalog, transac_user_id) values(?,?,?,?,?,?)";
-
-  const retunrLoanSql =
-    "insert into returnloan (returnLoan_id, returnLoan_amt, returnLoan_created_at, returnLoan_transac_id, returnLoan_buss_id ) values(?,?,?,?,?)";
-
-  db.query(
-    transactionsSql,
-    [type, amount, email, currentDate, paypalDatalog, user_id],
-    (error, result) => {
-      if (error) {
-        return res.send({ status: false, message: error.message });
-      } else {
-        const trans_id = result.insertId;
-
-        db.query(
-          retunrLoanSql,
-          [installmentId, amount, currentDate, trans_id, buss_id],
-          (error, result) => {
-            if (error) {
-              return res.send({ status: false, message: error.message });
-            } else {
-              db.query(
-                checkReturLoanLength,
-                buss_id,
-                (error, returnLoanLenght) => {
-                  if (error) {
-                    return res.send({ status: false, message: error.message });
-                  } else {
-                    if (returnLoanLenght.length === installmentLength) {
-                      const status = "complete";
-                      db.query(
-                        "update business set buss_status = ? where buss_id = ?",
-                        [status, buss_id],
-                        (error, result) => {
-                          if (error) {
-                            return res.send({
-                              status: false,
-                              message: error.message,
-                            });
-                          } else {
-                            db.query(
-                              "select sum(invst_returned_amt) as totalInvesmentReturn from investment where invst_buss_approved_buss_id = ?",
-                              buss_id,
-                              (error, resultTotalInvestmentAmount) => {
-                                if (error) {
-                                  return res.send({
-                                    status: false,
-                                    message: error.message,
-                                  });
-                                } else {
-                                  db.query(
-                                    "select sum(returnLoan_amt) as toatalReturn from returnloan where returnLoan_buss_id = ?",
-                                    buss_id,
-                                    (error, resultBusinessLoanReturn) => {
-                                      if (error) {
-                                        return res.send({
-                                          status: false,
-                                          message: error.message,
-                                        });
-                                      } else {
-                                        const totaInvestAMount =
-                                          resultTotalInvestmentAmount[0]
-                                            .totalInvesmentReturn;
-                                        const totalLoanReturn =
-                                          resultBusinessLoanReturn[0]
-                                            .toatalReturn;
-
-                                        const totalEarnings =
-                                          parseFloat(totalLoanReturn) -
-                                          parseFloat(totaInvestAMount);
-
-                                        db.query(
-                                          "insert into earnings (earnings_amt, earnings_created_at,earnings_buss_id ) values(?,?,?)",
-                                          [
-                                            totalEarnings,
-                                            formattedDate,
-                                            buss_id,
-                                          ],
-                                          (error, result) => {
-                                            if (error) {
-                                              return res.send({
-                                                status: false,
-                                                message: error.message,
-                                              });
-                                            } else {
-                                              return res.send({
-                                                status: true,
-                                                message:
-                                                  "Successfully Paid and the business loan is completed.",
-                                              });
-                                            }
-                                          }
-                                        );
-                                      }
-                                    }
-                                  );
-                                }
-                              }
-                            );
-                          }
-                        }
-                      );
-                    } else {
-                      return res.send({
-                        status: true,
-                        message: "Successfully Paid",
-                      });
-                    }
                   }
                 }
               );
@@ -3082,7 +3127,7 @@ app.post("/admin/chatsmsgs", (req, res) => {
   const { chatroom_id } = req.body;
 
   db.query(
-    "select * from chatmsg where chtmsg_chtroom_id = ? ",
+    "select * from chatmsg where chtmsg_chtroom_id = ? order by chtmsg_id desc",
     chatroom_id,
     (error, result) => {
       if (error) {
@@ -3223,10 +3268,10 @@ app.post("/user/myprofile", (req, res) => {
 
 app.post("/updateForgotPass", (req, res) => {
   const { newPass, emailForFOrgotPass } = req.body;
-  // const hash = bcrypt.hashSync(newPass, salt);
+  const hash = bcrypt.hashSync(newPass, salt);
   db.query(
     "update usertbl set user_password = ? where user_email = ?",
-    [newPass, emailForFOrgotPass],
+    [hash, emailForFOrgotPass],
     (error, result) => {
       if (error) {
         return res.send({ status: false, message: error.message });
@@ -3324,19 +3369,33 @@ app.post("/getNotif", (req, res) => {
     //   }
     // );
     db.query(
-      "select notification.*, usertbl.user_id as investorID, notif_content,usertbl.user_profile as investorProfile, business.buss_id as businessID from notification inner join notif_business_invest on notification.notif_id = notif_business_invest.notif_business_invest_id inner join business on notif_business_invest.notif_business_table_id = business.buss_id inner join investment on notif_business_invest.notif_business_investment_id =  investment.invst_id inner join usertbl on investment.invst_user_id = usertbl.user_id where  notification.notif_type = 'buss_invest'  and notification.user_id_reciever = ? group by notif_id order by notif_created_at desc",
+      "select notification.*, usertbl.user_id as investorID, notif_content,usertbl.user_profile as investorProfile, business.buss_id as businessID from notification inner join notif_business_invest on notification.notif_id = notif_business_invest.notif_business_invest_id inner join business on notif_business_invest.notif_business_table_id = business.buss_id inner join investment on notif_business_invest.notif_business_investment_id =  investment.invst_id inner join usertbl on investment.invst_user_id = usertbl.user_id where  notification.notif_type = 'buss_invest'  and notification.user_id_reciever = ? group by notif_id order by notif_id desc",
       [user_id],
       (error, result) => {
         if (error) {
           return res.send({ status: false, message: error.message });
         } else {
           db.query(
-            "select notification.*, business.buss_photo, notif_content from notification inner join notif_business_update on notification.notif_id = notif_business_update.notif_business_update_id inner join business on notif_business_update.notif_business_table_id = business.buss_id where notification.user_id_reciever = ?  and notif_type = ? order by notif_created_at desc",
+            "select notification.*, business.buss_photo, notif_content from notification inner join notif_business_update on notification.notif_id = notif_business_update.notif_business_update_id inner join business on notif_business_update.notif_business_table_id = business.buss_id where notification.user_id_reciever = ?  and notif_type = ? group by notif_id order by notif_id desc",
             [user_id, type],
             (error, buss_update_result) => {
-              const arrayData = result.concat(buss_update_result);
-
-              return res.send({ status: true, result: arrayData });
+              // const arrayData = result.concat(buss_update_result);
+              if (error) {
+                return res.send({ status: false, message: error.message });
+              } else {
+                const arrayData = [...result, ...buss_update_result];
+                const orderData = arrayData.sort((a, b) => {
+                  if (a.notif_id >= b.notif_id) {
+                    return -1;
+                  } else if (a.notif_id <= b.notif_id) {
+                    return 1;
+                  } else {
+                    return 0;
+                  }
+                });
+                //  console.log(orderData);
+                return res.send({ status: true, result: orderData });
+              }
             }
           );
         }
@@ -3344,7 +3403,7 @@ app.post("/getNotif", (req, res) => {
     );
   } else if (notif_type === "investment") {
     db.query(
-      "select notification.*, notif_content, buss_photo from notification inner join notif_investment on notification.notif_id = notif_investment.notif_investment_id inner join investment on notif_investment.notif_investment_table_id = investment.invst_id inner join businessapproved on investment.invst_buss_approved_buss_id = businessapproved.buss_approved_buss_id inner join business on businessapproved.buss_approved_buss_id = business.buss_id where notif_type = 'investment'  and user_id_reciever = ? order by notif_created_at desc",
+      "select notification.*, notif_content, buss_photo from notification inner join notif_investment on notification.notif_id = notif_investment.notif_investment_id inner join investment on notif_investment.notif_investment_table_id = investment.invst_id inner join businessapproved on investment.invst_buss_approved_buss_id = businessapproved.buss_approved_buss_id inner join business on businessapproved.buss_approved_buss_id = business.buss_id where notif_type = 'investment'  and user_id_reciever = ? group by notif_id order by notif_id desc",
       [user_id],
       (error, result) => {
         if (error) {
@@ -3720,12 +3779,11 @@ app.post("/updatedBusiness", (req, res) => {
 });
 
 app.post("/admin/cancelbusinessentrep", (req, res) => {
-  const { business, user_id } = req.body;
+  const { business, user_id, content } = req.body;
   const status = "cancel";
   const type = "buss_update";
   const notifStatus = "unread";
-  const content =
-    "We have cancel your business it didn't fully our requirements.";
+
   const notif_business_update =
     "insert into notif_business_update (notif_business_update_id, notif_content, notif_business_table_id) values (?,?,?)";
   const notificationSql =
@@ -3921,4 +3979,440 @@ app.post("/admin/sendrefund", (req, res) => {
 });
 app.post("/checkserverstatus", (req, res) => {
   return res.send({ status: true });
+});
+
+app.post("/user/udpatePassword", (req, res) => {
+  const { user_id, newPassword } = req.body;
+
+  db.query(
+    "update usertbl set user_password =? where user_id = ?",
+    [newPassword, user_id],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        return res.send({
+          status: true,
+          message: "Your password has been updated.",
+        });
+      }
+    }
+  );
+});
+
+app.post("/bussinesTypeList", (req, res) => {
+  db.query("select * from category", (error, categoryres) => {
+    if (error) {
+      return res.send({ status: false, message: error.message });
+    } else {
+      db.query(
+        "select * from subcategory inner join category on subcategory.sub_ctg_ctg_id = category.ctg_id",
+        (error, subcategoryRes) => {
+          if (error) {
+            return res.send({ status: false, message: error.message });
+          } else {
+            return res.send({ status: true, categoryres, subcategoryRes });
+          }
+        }
+      );
+    }
+  });
+});
+
+function updateCategoryFunction(editedCategory) {
+  return Promise.all(
+    editedCategory.map((item) => {
+      const updateCategoryQuery =
+        "UPDATE category SET ctg_name = ? WHERE ctg_id = ?";
+
+      return new Promise((resolve, reject) => {
+        db.query(
+          updateCategoryQuery,
+          [item.ctg_name, item.ctg_id],
+          (error, result) => {
+            if (error) {
+              reject({ status: false, error: error.message });
+            } else {
+              resolve({ status: true });
+            }
+          }
+        );
+      });
+    })
+  );
+}
+
+function updateSubCategoryFunction(editedSubCategory) {
+  return Promise.all(
+    editedSubCategory.map((item) => {
+      const updateCategoryQuery =
+        "UPDATE subcategory SET sub_ctg_name = ?, sub_ctg_status =? WHERE sub_ctg_id = ?";
+
+      return new Promise((resolve, reject) => {
+        db.query(
+          updateCategoryQuery,
+          [item.sub_ctg_name, item.sub_ctg_status, item.sub_ctg_id],
+          (error, result) => {
+            if (error) {
+              reject({ status: false, error: error.message });
+            } else {
+              resolve({ status: true });
+            }
+          }
+        );
+      });
+    })
+  );
+}
+
+app.post("/updatesCategorandSubs", async (req, res) => {
+  const { editedCategory, editedSubCategory } = req.body;
+
+  if (editedCategory.length > 0 && !editedSubCategory.length > 0) {
+    try {
+      await updateCategoryFunction(editedCategory);
+      return res.send({
+        status: true,
+        message: "Category has been successfully updated",
+      });
+    } catch (error) {
+      return res.send({ status: false, message: error.error });
+    }
+  } else if (!editedCategory.length > 0 && editedSubCategory.length > 0) {
+    try {
+      await updateSubCategoryFunction(editedSubCategory);
+      return res.send({
+        status: true,
+        message: "Subcategory has been successfully updated",
+      });
+    } catch (error) {
+      return res.send({ status: false, message: error.error });
+    }
+  } else if (editedCategory.length > 0 && editedSubCategory.length > 0) {
+    try {
+      await updateCategoryFunction(editedCategory);
+      await updateSubCategoryFunction(editedSubCategory);
+
+      return res.send({
+        status: true,
+        message: "Updated Successfully",
+      });
+    } catch (error) {
+      return res.send({ status: false, message: error.error });
+    }
+  } else {
+    return res.send({ status: true, message: "No categories to update" });
+  }
+});
+
+function PayMissedLoan(
+  installment,
+  buss_id,
+  email,
+  paypalDatalog,
+  user_id,
+  installmentLength
+) {
+  const type = "returnloan";
+  const checkReturLoanLength =
+    "select * from returnloan where returnLoan_buss_id = ? ";
+  const transactionsSql =
+    "insert into transactions (transac_type, transac_amt, transac_email, transac_created_at,transac_paypal_datalog, transac_user_id) values(?,?,?,?,?,?)";
+
+  const retunrLoanSql =
+    "insert into returnloan (returnLoan_id, returnLoan_amt, returnLoan_created_at, returnLoan_transac_id, returnLoan_buss_id ) values(?,?,?,?,?)";
+  return Promise.all(
+    installment.map((item) => {
+      return new Promise((resolve, reject) => {
+        console.log(item.installment);
+        //  resolve({ status: true, message: "Success" });
+        db.query(
+          transactionsSql,
+          [type, item.installment, email, currentDate, paypalDatalog, user_id],
+          (error, result) => {
+            if (error) {
+              reject({ status: false, error: error.message });
+            } else {
+              const trans_id = result.insertId;
+              console.log(trans_id);
+              // resolve({ status: true });
+              db.query(
+                retunrLoanSql,
+                [item.id, item.installment, currentDate, trans_id, buss_id],
+                (error, returnLoanResult) => {
+                  console.log("retunrLoanSql Sql");
+                  if (error) {
+                    reject({ status: false, error: error.message });
+                  } else {
+                    db.query(
+                      checkReturLoanLength,
+                      buss_id,
+                      (error, returnLoanLenght) => {
+                        console.log("checkReturLoanLength Sql");
+                        if (error) {
+                          reject({
+                            status: false,
+                            error: error.message,
+                          });
+                        } else {
+                          console.log(
+                            "Return Loan Lenght" + returnLoanLenght.length
+                          );
+                          if (returnLoanLenght.length === installmentLength) {
+                            const status = "complete";
+                            db.query(
+                              "update business set buss_status = ? where buss_id = ?",
+                              [status, buss_id],
+                              (error, result) => {
+                                if (error) {
+                                  reject({
+                                    status: false,
+                                    error: error.message,
+                                  });
+                                } else {
+                                  db.query(
+                                    "select sum(invst_returned_amt) as totalInvesmentReturn from investment where invst_buss_approved_buss_id = ?",
+                                    buss_id,
+                                    (error, resultTotalInvestmentAmount) => {
+                                      if (error) {
+                                        reject({
+                                          status: false,
+                                          error: error.message,
+                                        });
+                                      } else {
+                                        db.query(
+                                          "select sum(returnLoan_amt) as toatalReturn from returnloan where returnLoan_buss_id = ?",
+                                          buss_id,
+                                          (error, resultBusinessLoanReturn) => {
+                                            if (error) {
+                                              reject({
+                                                status: false,
+                                                error: error.message,
+                                              });
+                                            } else {
+                                              const totaInvestAMount =
+                                                resultTotalInvestmentAmount[0]
+                                                  .totalInvesmentReturn;
+                                              const totalLoanReturn =
+                                                resultBusinessLoanReturn[0]
+                                                  .toatalReturn;
+
+                                              const totalEarnings =
+                                                parseFloat(totalLoanReturn) -
+                                                parseFloat(totaInvestAMount);
+
+                                              db.query(
+                                                "insert into earnings (earnings_amt, earnings_created_at,earnings_buss_id ) values(?,?,?)",
+                                                [
+                                                  totalEarnings,
+                                                  formattedDate,
+                                                  buss_id,
+                                                ],
+                                                (error, result) => {
+                                                  if (error) {
+                                                    reject({
+                                                      status: false,
+                                                      error: error.message,
+                                                    });
+                                                  } else {
+                                                    resolve({
+                                                      status: true,
+                                                      message:
+                                                        "Successfully Paid and the business loan is completed.",
+                                                    });
+                                                    //return res.send;
+                                                  }
+                                                }
+                                              );
+                                            }
+                                          }
+                                        );
+                                      }
+                                    }
+                                  );
+                                }
+                              }
+                            );
+                          } else {
+                            resolve({
+                              status: true,
+                              message: "Successfully Paid",
+                            });
+                          }
+                        }
+                      }
+                    );
+                  }
+                }
+              );
+            }
+          }
+        );
+      });
+    })
+  );
+}
+
+app.post("/payreturnmissedloan", async (req, res) => {
+  const {
+    installment,
+    buss_id,
+    email,
+    paypalDatalog,
+    user_id,
+    installmentLength,
+  } = req.body;
+
+  try {
+    const result = await PayMissedLoan(
+      installment,
+      buss_id,
+      email,
+      paypalDatalog,
+      user_id,
+      installmentLength
+    );
+    console.log(result[result.length - 1].message);
+    return res.send({
+      status: true,
+      message: result[result.length - 1].message,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.send({ status: false, message: error.error });
+  }
+});
+
+app.post("/payretunrloan", (req, res) => {
+  const {
+    amount,
+    email,
+    paypalDatalog,
+    user_id,
+    installmentId,
+    buss_id,
+    installmentLength,
+  } = req.body;
+  const type = "returnloan";
+
+  const checkReturLoanLength =
+    "select * from returnloan where returnLoan_buss_id = ? ";
+  const transactionsSql =
+    "insert into transactions (transac_type, transac_amt, transac_email, transac_created_at,transac_paypal_datalog, transac_user_id) values(?,?,?,?,?,?)";
+
+  const retunrLoanSql =
+    "insert into returnloan (returnLoan_id, returnLoan_amt, returnLoan_created_at, returnLoan_transac_id, returnLoan_buss_id ) values(?,?,?,?,?)";
+
+  db.query(
+    transactionsSql,
+    [type, amount, email, currentDate, paypalDatalog, user_id],
+    (error, result) => {
+      if (error) {
+        return res.send({ status: false, message: error.message });
+      } else {
+        const trans_id = result.insertId;
+
+        db.query(
+          retunrLoanSql,
+          [installmentId, amount, currentDate, trans_id, buss_id],
+          (error, result) => {
+            if (error) {
+              return res.send({ status: false, message: error.message });
+            } else {
+              db.query(
+                checkReturLoanLength,
+                buss_id,
+                (error, returnLoanLenght) => {
+                  if (error) {
+                    return res.send({ status: false, message: error.message });
+                  } else {
+                    if (returnLoanLenght.length === installmentLength) {
+                      const status = "complete";
+                      db.query(
+                        "update business set buss_status = ? where buss_id = ?",
+                        [status, buss_id],
+                        (error, result) => {
+                          if (error) {
+                            return res.send({
+                              status: false,
+                              message: error.message,
+                            });
+                          } else {
+                            db.query(
+                              "select sum(invst_returned_amt) as totalInvesmentReturn from investment where invst_buss_approved_buss_id = ?",
+                              buss_id,
+                              (error, resultTotalInvestmentAmount) => {
+                                if (error) {
+                                  return res.send({
+                                    status: false,
+                                    message: error.message,
+                                  });
+                                } else {
+                                  db.query(
+                                    "select sum(returnLoan_amt) as toatalReturn from returnloan where returnLoan_buss_id = ?",
+                                    buss_id,
+                                    (error, resultBusinessLoanReturn) => {
+                                      if (error) {
+                                        return res.send({
+                                          status: false,
+                                          message: error.message,
+                                        });
+                                      } else {
+                                        const totaInvestAMount =
+                                          resultTotalInvestmentAmount[0]
+                                            .totalInvesmentReturn;
+                                        const totalLoanReturn =
+                                          resultBusinessLoanReturn[0]
+                                            .toatalReturn;
+
+                                        const totalEarnings =
+                                          parseFloat(totalLoanReturn) -
+                                          parseFloat(totaInvestAMount);
+
+                                        db.query(
+                                          "insert into earnings (earnings_amt, earnings_created_at,earnings_buss_id ) values(?,?,?)",
+                                          [
+                                            totalEarnings,
+                                            formattedDate,
+                                            buss_id,
+                                          ],
+                                          (error, result) => {
+                                            if (error) {
+                                              return res.send({
+                                                status: false,
+                                                message: error.message,
+                                              });
+                                            } else {
+                                              return res.send({
+                                                status: true,
+                                                message:
+                                                  "Successfully Paid and the business loan is completed.",
+                                              });
+                                            }
+                                          }
+                                        );
+                                      }
+                                    }
+                                  );
+                                }
+                              }
+                            );
+                          }
+                        }
+                      );
+                    } else {
+                      return res.send({
+                        status: true,
+                        message: "Successfully Paid",
+                      });
+                    }
+                  }
+                }
+              );
+            }
+          }
+        );
+      }
+    }
+  );
 });
