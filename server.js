@@ -1302,6 +1302,8 @@ app.post("/login", (req, res) => {
   //chnage pass word
   db.query(
     "select * from usertbl where user_email = ? ",
+
+
     email,
     (error, result) => {
       if (error) {
